@@ -96,10 +96,14 @@ parts to test the classifierʼs possibilities on the unseen data.
 ```{r}
 # here goes a list of recommended libraries,
 # though you may install other ones if they are needed
+install.packages("pacman")
+library(pacman)
+pacman::p_load(patchwork)
 library(tidytext)
 library(readr)
 library(dplyr)
 library(ggplot2)
+library(patchwork)
 ```
 
 ## Outline of the work
@@ -163,9 +167,10 @@ test <-  read.csv(file = test_path, stringsAsFactors = FALSE)
 ```{r}
 # note the power functional features of R bring us! 
 tidy_text <- unnest_tokens(train, 'splitted', 'text', token="words") %>%
-             filter(!splitted %in% stop_words)
+             filter(!splitted %in% splitted_stop_words)
 
-tidy_text %>% count(splitted,sort=TRUE)
+t_counts <- tidy_text %>% count(splitted,sort=TRUE)
+tidy_text
 ```
 
 ## Data visualization
@@ -174,6 +179,40 @@ Each time you work with some data, you need to understand it before you
 start processing it. R has very powerful tools to make nice plots and
 visualization. Show what are the most common words for negative and
 positive examples as a histogram, word cloud etc. Be creative!
+
+```{r}
+rtidy_text <- unnest_tokens(train, 'splitted', 'text', token="words") %>%
+             filter(splitted %in% splitted_stop_words)
+
+r_counts <- rtidy_text %>% count(splitted,sort=TRUE)
+top_r <- head(r_counts, 20)
+top_t <- head(t_counts, 20)
+# Convert table() to data frame for ggplot
+p1 <- ggplot(top_r, aes(x=reorder(splitted, n), y=n)) +
+  geom_col(fill="steelblue") +
+  coord_flip() +
+  labs(title="Top 20 stop words", x=NULL, y="Count")
+
+p2 <- ggplot(top_t, aes(x=reorder(splitted, n), y=n)) +
+  geom_col(fill="darkorange") +
+  coord_flip() +
+  labs(title="Top 20 clean words", x=NULL, y="Count")
+
+# Base R plots for all words
+rtidy_table <- as.data.frame(table(rtidy_text$splitted)) %>% arrange(Var1)
+tidy_table <- as.data.frame(table(tidy_text$splitted)) %>% arrange(Var1)
+
+
+# p1 and p2: print ggplots into the base R window using print()
+print(p1)
+print(p2)
+
+# p3 and p4: base R barplots, alphabetical, without labels
+barplot(rtidy_table$Freq, names.arg = NA, main="All stop words", col="firebrick")
+barplot(tidy_table$Freq, names.arg = NA, main="All clean words", col="forestgreen")
+
+```
+
 
 ## Classifier implementation
 
