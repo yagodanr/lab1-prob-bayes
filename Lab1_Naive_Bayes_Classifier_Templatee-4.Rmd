@@ -4,8 +4,7 @@ editor_options:
     wrap: 72
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```
 ```
 
 # Probability and Statistics
@@ -14,9 +13,9 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Work breakdown
 
--   *Name1 Surname1*:
--   *Name2 Surname2*:
--   *Name3 Surname3*:
+-   *Gordiy Eliseev*: Data pre-processing, Data visualization
+-   *Mykyta Yagoda*: Classifier implementation
+-   *Vladyslav Shymanovskyi*: Measurements of effectiveness of your classifier, Conclusions
 
 ## Introduction
 
@@ -96,14 +95,19 @@ parts to test the classifierʼs possibilities on the unseen data.
 ```{r}
 # here goes a list of recommended libraries,
 # though you may install other ones if they are needed
-install.packages("pacman")
-library(pacman)
-pacman::p_load(patchwork)
-library(tidytext)
-library(readr)
-library(dplyr)
-library(ggplot2)
-library(patchwork)
+
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+
+if (!require("pacman")) install.packages("pacman")
+
+pacman::p_load(
+  dplyr,
+  ggplot2,
+  tidytext,
+  readr,
+  patchwork,
+  wordcloud
+)
 ```
 
 ## Outline of the work
@@ -154,23 +158,29 @@ test_path <- "data/0-authors/test.csv"
 train_path <- "data/0-authors/train.csv"
 
 stop_words <- read_file("stop_words.txt")
-# https://stackoverflow.com/questions/27195912/why-does-strsplit-return-a-list
-splitted_stop_words <- strsplit(stop_words, split='\n')
-splitted_stop_words <- splitted_stop_words[[1]]
+splitted_stop_words <- strsplit(stop_words, "\n") %>%
+  unlist() %>%
+  gsub("\r", "", .) %>%
+  unique()
+stop_words
+splitted_stop_words
 ```
 
 ```{r}
-train <-  read.csv(file = train_path, stringsAsFactors = FALSE)
-test <-  read.csv(file = test_path, stringsAsFactors = FALSE)
+train <-  read.csv(file = train_path, stringsAsFactors = FALSE, row.names = 1)
+test <-  read.csv(file = test_path, stringsAsFactors = FALSE, row.names = 1)
 ```
 
 ```{r}
-# note the power functional features of R bring us! 
-tidy_text <- unnest_tokens(train, 'splitted', 'text', token="words") %>%
+# note the power functional features of R bring us!
+tidy_text_train <- unnest_tokens(train, 'splitted', 'text', token="words") %>%
              filter(!splitted %in% splitted_stop_words)
 
-t_counts <- tidy_text %>% count(splitted,sort=TRUE)
-tidy_text
+tidy_text_test <- unnest_tokens(test, 'splitted', 'text', token="words") %>%
+             filter(!splitted %in% splitted_stop_words)
+
+t_counts <- tidy_text_train %>% count(splitted,sort=TRUE)
+tidy_text_train
 ```
 
 ## Data visualization
@@ -181,75 +191,135 @@ visualization. Show what are the most common words for negative and
 positive examples as a histogram, word cloud etc. Be creative!
 
 ```{r}
-rtidy_text <- unnest_tokens(train, 'splitted', 'text', token="words") %>%
-             filter(splitted %in% splitted_stop_words)
+t_counts_train <- tidy_text_train %>% count(splitted, sort = TRUE, name = "freq")
+t_counts_test  <- tidy_text_test  %>% count(splitted, sort = TRUE, name = "freq")
 
-r_counts <- rtidy_text %>% count(splitted,sort=TRUE)
-top_r <- head(r_counts, 20)
-top_t <- head(t_counts, 20)
-# Convert table() to data frame for ggplot
-p1 <- ggplot(top_r, aes(x=reorder(splitted, n), y=n)) +
-  geom_col(fill="steelblue") +
+# Top-20 barplot (train)
+ggplot(t_counts_train %>% slice_max(freq, n = 20),
+       aes(x = reorder(splitted, freq), y = freq)) +
+  geom_col() +
   coord_flip() +
-  labs(title="Top 20 stop words", x=NULL, y="Count")
+  labs(title = "Top 20 words — TRAIN", x = "Word", y = "Frequency")
 
-p2 <- ggplot(top_t, aes(x=reorder(splitted, n), y=n)) +
-  geom_col(fill="darkorange") +
+# Top-20 barplot (test)
+ggplot(t_counts_test %>% slice_max(freq, n = 20),
+       aes(x = reorder(splitted, freq), y = freq)) +
+  geom_col() +
   coord_flip() +
-  labs(title="Top 20 clean words", x=NULL, y="Count")
+  labs(title = "Top 20 words — TEST", x = "Word", y = "Frequency")
 
-# Base R plots for all words
-rtidy_table <- as.data.frame(table(rtidy_text$splitted)) %>% arrange(Var1)
-tidy_table <- as.data.frame(table(tidy_text$splitted)) %>% arrange(Var1)
+# ----------  WORDCLOUDS ----------
+set.seed(123)  # for reproducibility
 
+# Wordcloud (train)
+wordcloud(words = t_counts_train$splitted,
+          freq  = t_counts_train$freq,
+          min.freq = 20,
+          max.words = 150,
+          random.order = FALSE,
+          colors = brewer.pal(8, "Dark2"))
 
-# p1 and p2: print ggplots into the base R window using print()
-print(p1)
-print(p2)
+# Wordcloud (test)
+wordcloud(words = t_counts_test$splitted,
+          freq  = t_counts_test$freq,
+          min.freq = 20,
+          max.words = 150,
+          random.order = FALSE,
+          colors = brewer.pal(8, "Dark2"))
 
-# p3 and p4: base R barplots, alphabetical, without labels
-barplot(rtidy_table$Freq, names.arg = NA, main="All stop words", col="firebrick")
-barplot(tidy_table$Freq, names.arg = NA, main="All clean words", col="forestgreen")
+# ---------- COMPARISON: TRAIN vs TEST (faceted barplots) ----------
+both_counts <- bind_rows(
+  t_counts_train %>% mutate(dataset = "train"),
+  t_counts_test  %>% mutate(dataset = "test")
+)
 
+ggplot(both_counts %>% group_by(dataset) %>% slice_max(freq, n = 15),
+       aes(x = reorder_within(splitted, freq, dataset), y = freq, fill = dataset)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~dataset, scales = "free") +
+  coord_flip() +
+  scale_x_reordered() +
+  labs(title = "Top 15 words — TRAIN vs TEST",
+       x = "Word", y = "Frequency")
 ```
-
 
 ## Classifier implementation
 
 ```{r}
-naiveBayes <- setRefClass("naiveBayes",
-                          
-       # here it would be wise to have some vars to store intermediate result
-       # frequency dict etc. Though pay attention to bag of words! 
-       fields = list(),
-       methods = list(
-                    # prepare your training data as X - bag of words for each of your
-                    # messages and corresponding label for the message encoded as 0 or 1 
-                    # (binary classification task)
-                    fit = function(X, y)
-                    {
-                         # TODO
-                    },
-                    
-                    # return prediction for a single message 
-                    predict = function(message)
-                    {
-                         # TODO
-                    },
-                    
-                    # score you test set so to get the understanding how well you model
-                    # works.
-                    # look at f1 score or precision and recall
-                    # visualize them 
-                    # try how well your model generalizes to real world data! 
-                    score = function(X_test, y_test)
-                    {
-                         # TODO
-                    }
-))
+naiveBayes <- setRefClass(
+  "naiveBayes",
 
-model = naiveBayes()
-model$fit()
+  fields = list(
+    classes = "character",     # class labels
+    vocab   = "character",     # all words in the bag-of-words
+    log_pr  = "numeric",       # log P(c)
+    log_lik = "matrix"         # log P(w|c)
+  ),
+
+  methods = list(
+    fit = function(X, y) {
+      # X: document-term matrix (rows = docs, cols = words, counts as values)
+      # y: vector of class labels for each document
+
+      classes <<- unique(y)
+      vocab   <<- colnames(X)
+      V <- length(vocab)
+
+      # Priors: P(c) = fraction of docs in each class
+      pr <- table(y) / length(y)
+      log_pr <<- as.vector(log(pr[classes])) #changed
+      names(log_pr) <<- classes
+
+      # Word counts per class
+      class_counts <- sapply(classes, function(cn) {
+        rows <- which(y == cn)
+        colSums(X[rows, , drop = FALSE])
+      })
+      class_counts <- as.matrix(class_counts)   # rows=vocab, cols=classes
+      rownames(class_counts) <- vocab
+      colnames(class_counts) <- classes
+
+      # Laplace smoothing
+      totals <- colSums(class_counts)
+      lik <- sweep(class_counts + 1, 2, totals + V, "/")
+
+      # Store log-likelihoods (rows=classes, cols=words)
+      log_lik <<- t(log(lik))
+
+      invisible(TRUE)
+    },
+
+    predict = function(message) {
+      # message: named numeric vector with word counts (bag-of-words)
+      scores <- sapply(1:length(classes), function(i) {
+        log_pr[i] + sum(message * log_lik[i, ], na.rm = TRUE)
+      })
+      names(scores) <- classes
+      names(which.max(scores))  # return predicted class
+    },
+
+    score = function(X_test, y_test) {
+      # Predict all test docs
+      preds <- apply(X_test, 1, function(row) .self$predict(row))
+      acc <- mean(preds == y_test)
+      cm <- table(True = y_test, Pred = preds)
+      metrics <- calculate_multiclass_metrics(cm, classes)
+
+      list(
+        accuracy = acc,
+        confusion_matrix = cm,
+        metrics_per_class = metrics$per_class,
+        macro_avg_metrics = metrics$macro_avg
+      )
+    }
+  )
+)
+
+# Example usage:
+# model = naiveBayes()
+# model$fit(X_train, y_train)
+# model$predict(X_train[1, ])
+# model$score(X_test, y_test)
 ```
 
 ## Measure effectiveness of your classifier
@@ -292,12 +362,195 @@ model$fit()
     **See [this
     link](https://cohere.com/blog/classification-eval-metrics) to find
     more information about metrics.**
+```{r}
+calculate_multiclass_metrics <- function(cm, class_labels) {
+  num_classes <- length(class_labels)
 
+  # Initialize vectors to store per-class metrics
+  precision_per_class <- numeric(num_classes)
+  recall_per_class    <- numeric(num_classes)
+  f1_per_class        <- numeric(num_classes)
+
+  names(precision_per_class) <- class_labels
+  names(recall_per_class)    <- class_labels
+  names(f1_per_class)        <- class_labels
+
+  for (i in seq_along(class_labels)) {
+    # For a given class, consider it as the "positive" class
+    current_class <- class_labels[i]
+
+    TP <- cm[current_class, current_class]
+    FP <- sum(cm[, current_class]) - TP
+    FN <- sum(cm[current_class, ]) - TP
+    TN <- sum(cm) - TP - FP - FN # Total - TP - FP - FN
+
+    # Precision: TP / (TP + FP)
+    precision <- ifelse((TP + FP) > 0, TP / (TP + FP), 0)
+    # Recall: TP / (TP + FN)
+    recall <- ifelse((TP + FN) > 0, TP / (TP + FN), 0)
+    # F1 Score: 2 * (Precision * Recall) / (Precision + Recall)
+    f1 <- ifelse((precision + recall) > 0, 2 * (precision * recall) / (precision + recall), 0)
+
+    precision_per_class[current_class] <- precision
+    recall_per_class[current_class]    <- recall
+    f1_per_class[current_class]        <- f1
+  }
+
+  # Macro-average for overall metrics
+  macro_precision <- mean(precision_per_class)
+  macro_recall    <- mean(recall_per_class)
+  macro_f1        <- mean(f1_per_class)
+
+  list(
+    per_class = data.frame(
+      class = class_labels,
+      precision = precision_per_class,
+      recall = recall_per_class,
+      f1_score = f1_per_class
+    ),
+    macro_avg = data.frame(
+      metric = c("Precision", "Recall", "F1_Score"),
+      value = c(macro_precision, macro_recall, macro_f1)
+    )
+  )
+}
+
+
+# Create a mapping from document ID to author for both train and test sets
+train_labels <- train %>% distinct(id, author)
+test_labels <- test %>% distinct(id, author)
+
+# Create DTM for the training set using tidytext
+dtm_train <- tidy_text_train %>%
+  count(id, splitted) %>%
+  cast_dtm(document = id, term = splitted, value = n)
+
+dtm_test_original <- tidy_text_test %>%
+  count(id, splitted) %>%
+  cast_dtm(document = id, term = splitted, value = n)
+
+
+train_vocab <- colnames(dtm_train)
+dtm_test_aligned <- matrix(0,
+                           nrow = nrow(dtm_test_original),
+                           ncol = length(train_vocab),
+                           dimnames = list(rownames(dtm_test_original), train_vocab))
+
+common_vocab <- intersect(colnames(dtm_test_original), train_vocab)
+
+# Fill the new aligned matrix with the counts from the original test matrix.
+# We convert the subset of the original DTM to a standard matrix before assigning.
+dtm_test_aligned[, common_vocab] <- as.matrix(dtm_test_original[, common_vocab])
+
+X_train <- as.matrix(dtm_train)
+X_test <- dtm_test_aligned
+
+# Create the label vectors y_train and y_test
+# Ensure the order of labels matches the order of rows in the matrices
+y_train <- train_labels$author[match(rownames(X_train), train_labels$id)]
+y_test <- test_labels$author[match(rownames(X_test), test_labels$id)]
+
+# Clean up intermediate objects to save memory
+rm(dtm_train, dtm_test_original, dtm_test_aligned)
+
+# Instantiate and fit the model using the training data
+model <- naiveBayes()
+model$fit(X_train, y_train)
+
+# Get the performance results on the test data
+results <- model$score(X_test, y_test)
+
+# Print all the calculated metrics in a structured way
+cat("====================================================\n")
+cat("      CLASSIFIER PERFORMANCE EVALUATION\n")
+cat("====================================================\n\n")
+
+# Print Overall Accuracy
+cat(sprintf("Overall Accuracy: %.4f (%.2f%%)\n\n", results$accuracy, results$accuracy * 100))
+cat("----------------------------------------------------\n")
+
+# Print Confusion Matrix
+cat("Confusion Matrix:\n")
+print(results$confusion_matrix)
+cat("\n----------------------------------------------------\n")
+
+# Print Per-Class Metrics
+cat("Metrics per Class (Precision, Recall, F1-Score):\n")
+print(results$metrics_per_class, row.names = FALSE)
+cat("\n----------------------------------------------------\n")
+
+# Print Macro-Averaged Metrics
+cat("Macro-Averaged Metrics:\n")
+print(results$macro_avg_metrics, row.names = FALSE)
+cat("\n====================================================\n\n")
+
+
+# a) Visualize the Confusion Matrix as a Heatmap for better interpretation
+cm_df <- as.data.frame(results$confusion_matrix)
+ggplot(cm_df, aes(x = Pred, y = True, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), vjust = 1, size = 6) +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  labs(title = "Confusion Matrix Heatmap",
+       x = "Predicted Author",
+       y = "True Author") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+
+# b) Visualize Per-Class F1 Scores for easy comparison
+ggplot(results$metrics_per_class, aes(x = reorder(class, -f1_score), y = f1_score, fill = class)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  geom_text(aes(label = sprintf("%.3f", f1_score)), vjust = -0.5) +
+  ylim(0, 1) +
+  labs(title = "F1 Score per Author",
+       x = "Author",
+       y = "F1 Score") +
+  theme_minimal()
+
+
+# Get predictions for the entire test set
+predictions <- apply(X_test, 1, function(row) model$predict(row))
+
+# Combine results into a single data frame
+failure_df <- data.frame(
+  id = rownames(X_test),
+  true_author = y_test,
+  predicted_author = predictions,
+  stringsAsFactors = FALSE
+)
+
+# Find the cases where the model made a mistake
+mistakes <- failure_df %>%
+  filter(true_author != predicted_author) %>%
+  # Join with the original test data to get the text
+  left_join(test, by = "id") %>%
+  select(id, text, true_author, predicted_author)
+
+cat("\n====================================================\n")
+cat("             ANALYSIS OF FAILURE CASES\n")
+cat("====================================================\n\n")
+cat(sprintf("The classifier made %d mistakes out of %d predictions.\n", nrow(mistakes), length(y_test)))
+cat("Here are a few examples of incorrect classifications:\n\n")
+
+# Display the first 5 failure cases (or fewer if there are not that many)
+if (nrow(mistakes) > 0) {
+  for (i in 1:min(5, nrow(mistakes))) {
+    cat(sprintf("--- Example %d ---\n", i))
+    cat(sprintf("Text: \"%s...\"\n", substr(mistakes$text[i], 1, 100)))
+    cat(sprintf("True Author:      %s\n", mistakes$true_author[i]))
+    cat(sprintf("Predicted Author: %s\n\n", mistakes$predicted_author[i]))
+  }
+} else {
+  cat("Wow! There were no mistakes on the test set. Perfect classification!\n")
+}
+
+```
 -   Visualize them.
 
 -   Show failure cases.
 
-## Conclusions
+Conclusions
 
 Summarize your work by explaining in a few sentences the points listed
 below.
@@ -309,3 +562,74 @@ below.
     nature of your data etc.
 -   Explain why accuracy is not a good choice for the base metrics for
     classification tasks. Why F1 score is always preferable?
+
+---
+## Conclusions
+
+In this lab, we successfully implemented a **Naive Bayes classifier** from
+scratch in R to attribute text excerpts to one of three authors: Edgar
+Allan Poe, Mary Shelley, or H.P. Lovecraft. The final model achieved a
+strong overall **accuracy of 82.7%** and a macro-averaged **F1 score of
+0.83**, demonstrating that the method is highly effective for this text
+classification task based on word frequencies.
+
+**Method and Mathematical Foundations**
+
+The core of this project was the implementation of a **Multinomial Naive
+Bayes classifier**, a probabilistic algorithm well-suited for text
+classification. The model is founded on **Bayes' Theorem**:
+
+$$
+\mathsf{P}(\mathrm{class}\mid \mathrm{observation})=\frac{\mathsf{P}(\mathrm{observation}\mid\mathrm{class})\mathsf{P}(\mathrm{class})}{\mathsf{P}(\mathrm{observation})}
+$$
+
+This formula allows us to calculate the probability of an author (`class`)
+given a piece of text (`observation`). The method's key assumption—and what
+makes it "naive"—is that every word (`feature`) in the text is
+**conditionally independent** of every other word, given the author. This
+simplifies the likelihood calculation to a product of individual word
+probabilities, $\prod \mathsf{P}(\mathrm{word}_i \mid \mathrm{class})$.
+Probabilities were estimated from the training data, and we applied
+**Laplace (add-one) smoothing** to handle words in the test set that were
+not seen during training.
+
+**Pros and Cons of the Method**
+
+The Naive Bayes method has several distinct advantages and limitations.
+
+-   **Pros:** The classifier is computationally efficient and fast, requiring
+    a relatively small training set to estimate its parameters. Its
+    underlying logic is simple to understand and implement. Despite its
+    simplistic assumptions, it often performs surprisingly well, especially
+    for text-based tasks.
+
+-   **Cons:** The primary limitation is the **independence assumption**, as
+    words in a language are rarely independent. This can lead to suboptimal
+    results if features are strongly correlated. Another issue is the
+    **zero-frequency problem**, where a word in the test set has not appeared
+    in the training data for a class. This was mitigated in our
+    implementation by using Laplace smoothing.
+
+**Evaluation Metrics: Accuracy vs. F1 Score**
+
+While **accuracy** is an intuitive metric, it can be misleading for
+classification tasks, especially with an imbalanced class distribution. A
+model could achieve high accuracy by simply predicting the majority class
+every time, rendering it useless for identifying minority classes.
+
+The **F1 score** is a more robust metric because it balances **precision** and
+**recall** by calculating their harmonic mean.
+
+-   **Precision** measures the proportion of true positive predictions
+    among all positive predictions made (`TP / (TP + FP)`). It quantifies
+    the quality of positive predictions.
+
+-   **Recall** measures the proportion of true positives that were
+    correctly identified out of all actual positives (`TP / (TP + FN)`). It
+    quantifies the completeness of positive predictions.
+
+By combining these two perspectives, the F1 score provides a more
+comprehensive assessment of a classifier's effectiveness. In our case, the
+per-class F1 scores gave a clearer picture of the model's performance than
+accuracy alone, showing it was most effective at identifying H.P. Lovecraft
+(F1 = 0.89) and struggled most with Edgar Allan Poe (F1 = 0.76).
