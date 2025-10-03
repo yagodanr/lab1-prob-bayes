@@ -106,7 +106,8 @@ pacman::p_load(
   tidytext,
   readr,
   patchwork,
-  wordcloud
+  wordcloud,
+  tm
 )
 ```
 
@@ -158,7 +159,7 @@ test_path <- "data/0-authors/test.csv"
 train_path <- "data/0-authors/train.csv"
 
 stop_words <- read_file("stop_words.txt")
-splitted_stop_words <- strsplit(stop_words, "\n") %>%
+splitted_stop_words <- strsplit(stop_words, "[\n\t]") %>%
   unlist() %>%
   gsub("\r", "", .) %>%
   unique()
